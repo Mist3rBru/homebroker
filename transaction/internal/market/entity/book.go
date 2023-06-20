@@ -24,18 +24,27 @@ func NewBook(orderChan chan *Order, orderChanOut chan *Order, wg *sync.WaitGroup
 }
 
 func (b *Book) Trade() {
-	buyOrders := NewOrderQueue()
-	sellOrders := NewOrderQueue()
-
-	heap.Init(buyOrders)
-	heap.Init(sellOrders)
+	buyOrders := make(map[string]*OrderQueue)
+	sellOrders := make(map[string]*OrderQueue)
 
 	for order := range b.OrdersChan {
+		asset := order.Asset.Id
+
+		if buyOrders[asset] == nil {
+			buyOrders[asset] = NewOrderQueue()
+			heap.Init(buyOrders[asset])
+		}
+
+		if sellOrders[asset] == nil {
+			sellOrders[asset] = NewOrderQueue()
+			heap.Init(sellOrders[asset])
+		}
+
 		if order.Type == "BUY" {
 			buyOrder := order
-			buyOrders.Push(buyOrder)
-			if sellOrders.Len() > 0 && sellOrders.Orders[0].Price <= buyOrder.Price {
-				sellOrder := sellOrders.Pop().(*Order)
+			buyOrders[asset].Push(buyOrder)
+			if sellOrders[asset].Len() > 0 && sellOrders[asset].Orders[0].Price <= buyOrder.Price {
+				sellOrder := sellOrders[asset].Pop().(*Order)
 				if sellOrder.PendingShares > 0 {
 					transaction := NewTransaction(sellOrder, buyOrder, buyOrder.Shares, sellOrder.Price)
 					b.AddTransation(transaction, b.Wg)
@@ -44,15 +53,15 @@ func (b *Book) Trade() {
 					b.OrdersChanOut <- sellOrder
 					b.OrdersChanOut <- buyOrder
 					if sellOrder.PendingShares > 0 {
-						heap.Push(sellOrders, sellOrder)
+						heap.Push(sellOrders[asset], sellOrder)
 					}
 				}
 			}
 		} else if order.Type == "SELL" {
 			sellOrder := order
-			sellOrders.Push(sellOrder)
-			if buyOrders.Len() > 0 && buyOrders.Orders[0].Price >= sellOrder.Price {
-				buyOrder := buyOrders.Pop().(*Order)
+			sellOrders[asset].Push(sellOrder)
+			if buyOrders[asset].Len() > 0 && buyOrders[asset].Orders[0].Price >= sellOrder.Price {
+				buyOrder := buyOrders[asset].Pop().(*Order)
 				if buyOrder.PendingShares > 0 {
 					transaction := NewTransaction(sellOrder, buyOrder, sellOrder.Shares, sellOrder.Price)
 					b.AddTransation(transaction, b.Wg)
@@ -61,7 +70,7 @@ func (b *Book) Trade() {
 					b.OrdersChanOut <- buyOrder
 					b.OrdersChanOut <- sellOrder
 					if buyOrder.PendingShares > 0 {
-						heap.Push(buyOrders, buyOrder)
+						heap.Push(buyOrders[asset], buyOrder)
 					}
 				}
 			}
